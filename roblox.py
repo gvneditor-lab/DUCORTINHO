@@ -94,3 +94,243 @@ class Roblox:
                     )
 
                     print(
+                        f'[ROBLOX] Metodo: {method}',
+                        flush=True
+                    )
+
+                    print(
+                        f'[ROBLOX] Rota: {host}{path}',
+                        flush=True
+                    )
+
+                    print(
+                        f'[ROBLOX] Status: {status}',
+                        flush=True
+                    )
+
+                    try:
+                        error = await response.json()
+
+                        if isinstance(error, dict):
+                            for item in error.get('errors', []):
+                                if not isinstance(item, dict):
+                                    continue
+
+                                code = item.get('code')
+
+                                if isinstance(code, int):
+                                    print(
+                                        f'[ROBLOX] Codigo: {code}',
+                                        flush=True
+                                    )
+
+                            descriptions = str(error).lower()
+
+                            if 'browsertracker' in descriptions:
+                                print(
+                                    '[ROBLOX] Contexto de navegador exigido.',
+                                    flush=True
+                                )
+
+                            elif 'csrf' in descriptions:
+                                print(
+                                    '[ROBLOX] Falha de validacao CSRF.',
+                                    flush=True
+                                )
+
+                            elif 'challenge' in descriptions:
+                                print(
+                                    '[ROBLOX] Verificacao de seguranca exigida.',
+                                    flush=True
+                                )
+
+                            elif 'authorization' in descriptions:
+                                print(
+                                    '[ROBLOX] Autorizacao recusada.',
+                                    flush=True
+                                )
+
+                            else:
+                                print(
+                                    '[ROBLOX] Motivo nao classificado.',
+                                    flush=True
+                                )
+
+                    except Exception:
+                        print(
+                            '[ROBLOX] Resposta de erro sem JSON valido.',
+                            flush=True
+                        )
+
+                    self.stage = (
+                        f'{self.stage} (HTTP {status})'
+                    )
+
+                    raise RuntimeError(
+                        f'Roblox HTTP {status}'
+                    )
+
+                if status == 204:
+                    return {}
+
+                return await response.json()
+
+        raise RuntimeError(
+            'Autorização Roblox não confirmada.'
+        )
+
+    async def shutdown(self):
+        for session in self.sessions.values():
+            if not session.closed:
+                await session.close()
+
+        self.sessions.clear()
+        self.tokens.clear()
+
+    # ==================================
+    # GERENCIAMENTO DA CIDADE
+    # ==================================
+
+    async def info(self):
+        return await self.request(
+            'GET',
+            'games.roblox.com',
+            f'/v1/vip-servers/{self.id}'
+        )
+
+    async def set_access(self, enabled):
+        self.stage = 'consultar acesso'
+
+        info = await self.info()
+
+        if not isinstance(info.get('active'), bool):
+            raise RuntimeError(
+                'Campo active não reconhecido.'
+            )
+
+        if info['active'] != enabled:
+            self.stage = 'alterar acesso'
+
+            await self.request(
+                'PATCH',
+                'games.roblox.com',
+                f'/v1/vip-servers/{self.id}',
+                {'active': enabled}
+            )
+
+        if (await self.info()).get('active') is not enabled:
+            raise RuntimeError(
+                'Acesso não confirmado.'
+            )
+
+    async def close(self):
+        await self.set_access(False)
+
+    async def open(self):
+        await self.set_access(True)
+
+        self.stage = 'gerar convite'
+        before = await self.info()
+
+        def code_of(data):
+            for key in (
+                'linkCode',
+                'privateServerLinkCode',
+                'joinCode'
+            ):
+                value = data.get(key)
+
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+            return None
+
+        old = code_of(before)
+
+        result = await self.request(
+            'PATCH',
+            'games.roblox.com',
+            f'/v1/vip-servers/{self.id}',
+            {'newJoinCode': True}
+        )
+
+        candidate = code_of(result)
+
+        for delay in (0, 1, 2, 3, 4):
+
+            if delay:
+                await asyncio.sleep(delay)
+
+            info = await self.info()
+            code = code_of(info)
+
+            if info.get('active') is not True:
+                continue
+
+            if not code or code == old:
+                if candidate and candidate != old:
+                    code = candidate
+                else:
+                    continue
+
+            place = os.getenv(
+                'ROBLOX_PLACE_ID',
+                '101953291486308'
+            ).strip()
+
+            if not place.isdigit() or int(place) <= 0:
+                self.stage = 'identificar mapa'
+
+                raise RuntimeError(
+                    'Place ID não confirmado.'
+                )
+
+            return (
+                f'https://www.roblox.com/games/{place}?'
+                + urlencode({
+                    'privateServerLinkCode': code
+                })
+            )
+
+        self.stage = 'confirmar novo convite'
+
+        raise RuntimeError(
+            'Novo código não confirmado.'
+        )
+
+    # ==================================
+    # SISTEMA DE PUNICOES
+    # ==================================
+
+    async def punishment_request(self, method, host, path, body=None):
+        cookie=os.getenv('ROBLOX_SESSION','').strip()
+        if not cookie: raise RuntimeError('Configure ROBLOX_SESSION no ambiente privado.')
+        if host not in ('games.roblox.com','accountsettings.roblox.com','users.roblox.com'): raise RuntimeError('Host não autorizado.')
+        headers={'Cookie':'.ROBLOSECURITY='+cookie,'Accept':'application/json'}
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as sess:
+            for attempt in range(2):
+                if self.csrf: headers['X-CSRF-TOKEN']=self.csrf
+                async with sess.request(method,'https://'+host+path,json=body,headers=headers,allow_redirects=False) as r:
+                    if r.status==403 and r.headers.get('x-csrf-token') and attempt==0:
+                        self.csrf=r.headers['x-csrf-token']; continue
+                    if not 200<=r.status<300:
+                        self.stage=f'{self.stage} (HTTP {r.status})'
+                        raise RuntimeError(f'Roblox HTTP {r.status}')
+                    if r.status==204: return {}
+                    return await r.json()
+        raise RuntimeError('Autorização Roblox não confirmada.')
+    async def blocked(self,uid):
+        self.stage='consultar bloqueios'
+        data=await self.punishment_request('GET','accountsettings.roblox.com','/v1/users/get-blocked-users')
+        users=data.get('blockedUsers')
+        if not isinstance(users,list) or any(not isinstance(x,dict) or not isinstance(x.get('userId'),int) for x in users): raise RuntimeError('Lista de bloqueios não reconhecida.')
+        if data.get('nextPageCursor') or (isinstance(data.get('total'),int) and data['total']>len(users)): raise RuntimeError('Lista incompleta.')
+        return any(x['userId']==int(uid) for x in users)
+    async def change_block(self,uid,block):
+        uid=int(uid)
+        if await self.blocked(uid)==block: return False
+        self.stage='alterar bloqueio'
+        action='block' if block else 'unblock'
+        await self.punishment_request('POST','accountsettings.roblox.com',f'/v1/users/{uid}/{action}',{})
+        if await self.blocked(uid)!=block: raise RuntimeError('Bloqueio não confirmado.')
+        return True
