@@ -74,8 +74,9 @@ def profession_roles(guild, required=(), held=()):
  roles = {}
  for name in PROF_NAMES:
   matches = [r for r in guild.roles if r.name == name]
+  if name not in required and not any(r in held for r in matches): continue
   if len(matches) != 1:
-   if name in required or any(r in held for r in matches): raise RuntimeError('Cargo ausente ou duplicado: '+name)
+   if name in required or any(r in held for r in matches): raise RuntimeError('Cargo necessário ausente ou duplicado: '+name+'. Avise a staff.')
    continue
   r = matches[0]
   if r.managed or ({k for k,v in r.permissions if v} - SAFE) or r >= guild.me.top_role: raise RuntimeError('Cargo inseguro ou acima do bot: '+name)

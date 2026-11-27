@@ -17,12 +17,25 @@ async def setup_punicoes(bot,guild,cfg,save):
             overwrites[role]=discord.PermissionOverwrite(view_channel=True,send_messages=True,read_message_history=True)
         else: print('Punições: cargo ausente ou duplicado:',name,flush=True)
     ch=guild.get_channel(cfg.get('punicoes_channel',0))
+    if ch is not None and not isinstance(ch,discord.TextChannel):
+        raise RuntimeError('ID do painel não corresponde a um canal de texto.')
     if ch is None:
-        if any(c.name=='painel-de-punições' for c in guild.text_channels): raise RuntimeError('Canal existente sem ID salvo; renomeie-o antes de instalar.')
-        ch=await guild.create_text_channel('painel-de-punições',overwrites=overwrites,reason='Painel exclusivo do proprietário')
-        cfg['punicoes_channel']=ch.id; save()
-    else:
-        await ch.edit(overwrites=overwrites)
+        candidates=[c for c in guild.text_channels if c.name=='painel-de-punições']
+        if len(candidates)>1:
+            raise RuntimeError('Painéis duplicados: mantenha apenas um canal com o nome painel-de-punições.')
+        if candidates:
+            ch=candidates[0]
+            # Adopt only a channel containing a panel authored by this bot.
+            found=False
+            async for m in ch.history(limit=100):
+                if m.author.id==bot.user.id and any(e.title=='⚖️ CENTRAL DE PUNIÇÕES' for e in m.embeds):
+                    found=True; break
+            if not found:
+                raise RuntimeError('Canal existente sem painel reconhecido; confirme com a staff.')
+        else:
+            ch=await guild.create_text_channel('painel-de-punições',overwrites=overwrites,reason='Painel de punições')
+    await ch.edit(overwrites=overwrites)
+    cfg['punicoes_channel']=ch.id; save()
     def authority(i):
         if i.guild_id!=guild.id or i.channel_id!=ch.id: return None
         if i.user.id==owner: return ('Proprietário',None)
@@ -154,6 +167,12 @@ async def setup_punicoes(bot,guild,cfg,save):
     if cfg.get('punicoes_message'):
         try: msg=await ch.fetch_message(cfg['punicoes_message'])
         except discord.NotFound: pass
+    if msg and (msg.author.id!=bot.user.id or not any(e.title==embed.title for e in msg.embeds)):
+        msg=None
+    if not msg:
+        async for candidate in ch.history(limit=100):
+            if candidate.author.id==bot.user.id and any(e.title==embed.title for e in candidate.embeds):
+                msg=candidate; break
     if msg: await msg.edit(embed=embed,view=view)
     else: msg=await ch.send(embed=embed,view=view)
     cfg['punicoes_message']=msg.id; save()
