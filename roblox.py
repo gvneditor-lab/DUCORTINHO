@@ -1,5 +1,5 @@
 
-"""DUCORTINHO Cloud V2.0"""
+"""DUCORTINHO Cloud V2.1"""
 import os
 import asyncio
 import aiohttp
@@ -56,9 +56,6 @@ class Roblox:
         if host not in allowed_hosts:
             raise RuntimeError('Host não autorizado.')
 
-        if host == "accountsettings.roblox.com":
-            return await self.request_legacy(method, host, path, body)
-
         session = await self.get_session(host)
 
         headers = {}
@@ -94,3 +91,6 @@ class Roblox:
                     print(
                         f'[ROBLOX] Etapa: {self.stage}',
                         flush=True
+                    )
+
+                    print(
