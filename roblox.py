@@ -1,3 +1,4 @@
+
 """Experimental HTTP backend; fail closed on unknown response schemas."""
 import os, asyncio, aiohttp
 from urllib.parse import urlencode
@@ -14,7 +15,12 @@ class Roblox:
         if not cookie:
             raise RuntimeError('Configure ROBLOX_SESSION no ambiente privado.')
 
-        if host not in ('games.roblox.com','accountsettings.roblox.com','users.roblox.com'):
+        if host not in (
+            'games.roblox.com',
+            'accountsettings.roblox.com',
+            'users.roblox.com',
+            'apis.roblox.com'
+        ):
             raise RuntimeError('Host não autorizado.')
 
         headers={
@@ -153,10 +159,11 @@ class Roblox:
     async def blocked(self,uid):
         self.stage='consultar bloqueios'
 
+        # API atualizada - V1.4
         data=await self.request(
             'GET',
-            'accountsettings.roblox.com',
-            '/v1/users/get-blocked-users'
+            'apis.roblox.com',
+            '/user-blocking-api/v1/users/get-blocked-users'
         )
 
         users=data.get('blockedUsers')
@@ -185,10 +192,11 @@ class Roblox:
         self.stage='alterar bloqueio'
         action='block' if block else 'unblock'
 
+        # API atualizada - V1.4
         await self.request(
             'POST',
-            'accountsettings.roblox.com',
-            f'/v1/users/{uid}/{action}',
+            'apis.roblox.com',
+            f'/user-blocking-api/v1/users/{uid}/{action}-user',
             {}
         )
 
