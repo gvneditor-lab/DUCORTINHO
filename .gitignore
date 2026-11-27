@@ -1,0 +1,7 @@
+.env
+config.json
+.venv/
+sessao_roblox/
+__pycache__/
+*.log
+*.zip

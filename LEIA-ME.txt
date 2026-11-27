@@ -1,0 +1,10 @@
+DUCORTINHO CLOUD — experimental, sem Chromium
+1. Não execute junto com o bot Windows. Faça o primeiro teste sem jogadores.
+2. Configure DISCORD_TOKEN e ROBLOX_SESSION como variáveis privadas na hospedagem. ROBLOX_SESSION equivale à credencial completa da conta secundária; nunca compartilhe. Se não houver ambiente privado disponível, não envie a credencial em ZIP público. ROBLOX_SERVER_ID é opcional.
+3. Antes do upload, copie o config.json original localmente para este pacote se precisar preservar punições ativas. O config incluído preserva IDs mas não contém histórico de punições. Verifique se não contém segredos antes de enviar.
+4. Compacte os arquivos na raiz e envie à Discloud. O plano free tem 100 MB; não há garantia de caber ou ficar online. Não há reinício automático garantido.
+5. Confira logs. Teste verificação, cargos, tickets, painel, abertura/fechamento, link novo em outra conta e punição temporária com conta de teste. Não use em produção antes disso.
+6. APIs Roblox via sessão autenticada são experimentais neste projeto. Campos e rotas de bloqueio precisam de validação real. Não foi testada a equivalência entre active e Permitir entrada, nem a expulsão de jogadores. Se houver falha, volte ao bot Windows. Nunca tente contornar desafios de autenticação.
+7. O ciclo da cidade não é retomado automaticamente após reinício (comportamento original). Registros dependem da persistência de config.json; faça backups privados, especialmente antes de atualizar. Não restaure registros antigos sem conferir bloqueios atuais.
+
+V1.1: carrega .env local se existir; variáveis do ambiente têm prioridade. O exemplo não contém segredos. Prefira armazenamento privado de variáveis da hospedagem; não envie credenciais se não houver garantia de privacidade.
