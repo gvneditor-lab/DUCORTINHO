@@ -1,5 +1,5 @@
 
-"""Experimental HTTP backend; fail closed on unknown response schemas."""
+"""DUCORTINHO Cloud V1.6 - Experimental HTTP backend."""
 import os, asyncio, aiohttp
 from urllib.parse import urlencode
 
@@ -46,7 +46,6 @@ class Roblox:
                         self.csrf=r.headers['x-csrf-token']
                         continue
 
-                    # Diagnóstico V1.5
                     if not 200 <= r.status < 300:
                         print(f"[ROBLOX] Etapa: {self.stage}", flush=True)
                         print(f"[ROBLOX] Metodo: {method}", flush=True)
@@ -162,31 +161,43 @@ class Roblox:
         self.stage='confirmar novo código de convite'
         raise RuntimeError('Novo código não confirmado.')
 
-    async def blocked(self,uid):
-        self.stage='consultar bloqueios'
+    # Consulta individual de bloqueios - V1.6
+    async def blocked(self, uid):
+        self.stage='consultar bloqueio individual'
+        uid=int(uid)
 
         data=await self.request(
             'GET',
             'apis.roblox.com',
-            '/user-blocking-api/v1/users/get-blocked-users'
+            f'/user-blocking-api/v1/users/{uid}/is-blocked'
         )
 
-        users=data.get('blockedUsers')
+        if isinstance(data,bool):
+            print(
+                f"[ROBLOX] Bloqueio consultado: {data}",
+                flush=True
+            )
+            return data
 
-        if not isinstance(users,list) or any(
-            not isinstance(x,dict)
-            or not isinstance(x.get('userId'),int)
-            for x in users
-        ):
-            raise RuntimeError('Lista de bloqueios não reconhecida.')
+        if isinstance(data,dict):
+            for key in ('isBlocked','blocked','isUserBlocked'):
+                value=data.get(key)
 
-        if data.get('nextPageCursor') or (
-            isinstance(data.get('total'),int)
-            and data['total']>len(users)
-        ):
-            raise RuntimeError('Lista incompleta.')
+                if isinstance(value,bool):
+                    print(
+                        f"[ROBLOX] Bloqueio consultado: {value}",
+                        flush=True
+                    )
+                    return value
 
-        return any(x['userId']==int(uid) for x in users)
+            print(
+                f"[ROBLOX] Campos recebidos: {list(data.keys())}",
+                flush=True
+            )
+
+        raise RuntimeError(
+            'Resposta de bloqueio individual não reconhecida.'
+        )
 
     async def change_block(self,uid,block):
         uid=int(uid)
