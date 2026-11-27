@@ -46,7 +46,13 @@ class Roblox:
                         self.csrf=r.headers['x-csrf-token']
                         continue
 
-                    if not 200<=r.status<300:
+                    # Diagnóstico V1.5
+                    if not 200 <= r.status < 300:
+                        print(f"[ROBLOX] Etapa: {self.stage}", flush=True)
+                        print(f"[ROBLOX] Metodo: {method}", flush=True)
+                        print(f"[ROBLOX] Rota: {host}{path}", flush=True)
+                        print(f"[ROBLOX] Status: {r.status}", flush=True)
+
                         self.stage=f'{self.stage} (HTTP {r.status})'
                         raise RuntimeError(f'Roblox HTTP {r.status}')
 
@@ -159,7 +165,6 @@ class Roblox:
     async def blocked(self,uid):
         self.stage='consultar bloqueios'
 
-        # API atualizada - V1.4
         data=await self.request(
             'GET',
             'apis.roblox.com',
@@ -192,7 +197,6 @@ class Roblox:
         self.stage='alterar bloqueio'
         action='block' if block else 'unblock'
 
-        # API atualizada - V1.4
         await self.request(
             'POST',
             'apis.roblox.com',
