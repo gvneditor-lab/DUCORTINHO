@@ -1,60 +1,198 @@
 """Experimental HTTP backend; fail closed on unknown response schemas."""
-import os, aiohttp
+import os, asyncio, aiohttp
 from urllib.parse import urlencode
 
 class Roblox:
     stage='inicialização'
+
     def __init__(self):
         self.id=int(os.getenv('ROBLOX_SERVER_ID','5048828340'))
         self.csrf=''
+
     async def request(self, method, host, path, body=None):
         cookie=os.getenv('ROBLOX_SESSION','').strip()
-        if not cookie: raise RuntimeError('Configure ROBLOX_SESSION no ambiente privado.')
-        if host not in ('games.roblox.com','accountsettings.roblox.com','users.roblox.com'): raise RuntimeError('Host não autorizado.')
-        headers={'Cookie':'.ROBLOSECURITY='+cookie,'Accept':'application/json'}
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as sess:
+        if not cookie:
+            raise RuntimeError('Configure ROBLOX_SESSION no ambiente privado.')
+
+        if host not in ('games.roblox.com','accountsettings.roblox.com','users.roblox.com'):
+            raise RuntimeError('Host não autorizado.')
+
+        headers={
+            'Cookie':'.ROBLOSECURITY='+cookie,
+            'Accept':'application/json'
+        }
+
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=20)
+        ) as sess:
             for attempt in range(2):
-                if self.csrf: headers['X-CSRF-TOKEN']=self.csrf
-                async with sess.request(method,'https://'+host+path,json=body,headers=headers,allow_redirects=False) as r:
+                if self.csrf:
+                    headers['X-CSRF-TOKEN']=self.csrf
+
+                async with sess.request(
+                    method,
+                    'https://'+host+path,
+                    json=body,
+                    headers=headers,
+                    allow_redirects=False
+                ) as r:
                     if r.status==403 and r.headers.get('x-csrf-token') and attempt==0:
-                        self.csrf=r.headers['x-csrf-token']; continue
-                    if not 200<=r.status<300: raise RuntimeError(f'Roblox HTTP {r.status} — {self.stage}')
-                    if r.status==204: return {}
+                        self.csrf=r.headers['x-csrf-token']
+                        continue
+
+                    if not 200<=r.status<300:
+                        self.stage=f'{self.stage} (HTTP {r.status})'
+                        raise RuntimeError(f'Roblox HTTP {r.status}')
+
+                    if r.status==204:
+                        return {}
+
                     return await r.json()
+
         raise RuntimeError('Autorização Roblox não confirmada.')
+
     async def info(self):
-        return await self.request('GET','games.roblox.com',f'/v1/vip-servers/{self.id}')
+        return await self.request(
+            'GET',
+            'games.roblox.com',
+            f'/v1/vip-servers/{self.id}'
+        )
+
     async def set_access(self,enabled):
         self.stage='consultar acesso'
         info=await self.info()
-        if not isinstance(info.get('active'),bool): raise RuntimeError('Campo active não reconhecido; nenhuma alteração executada.')
+
+        if not isinstance(info.get('active'),bool):
+            raise RuntimeError('Campo active não reconhecido; nenhuma alteração executada.')
+
         if info['active']!=enabled:
             self.stage='alterar acesso'
-            await self.request('PATCH','games.roblox.com',f'/v1/vip-servers/{self.id}',{'active':enabled})
-        if (await self.info()).get('active') is not enabled: raise RuntimeError('Acesso não confirmado.')
-    async def close(self): await self.set_access(False)
+
+            await self.request(
+                'PATCH',
+                'games.roblox.com',
+                f'/v1/vip-servers/{self.id}',
+                {'active':enabled}
+            )
+
+        if (await self.info()).get('active') is not enabled:
+            raise RuntimeError('Acesso não confirmado.')
+
+    async def close(self):
+        await self.set_access(False)
+
     async def open(self):
         await self.set_access(True)
         self.stage='gerar convite'
-        old=(await self.info()).get('linkCode')
-        result=await self.request('PATCH','games.roblox.com',f'/v1/vip-servers/{self.id}',{'newJoinCode':True})
-        info=await self.info(); code=info.get('linkCode')
-        if not isinstance(code,str) or not code or code==old: raise RuntimeError('Novo código não confirmado.')
-        game=info.get('game') or {}; place=game.get('rootPlaceId') or info.get('placeId')
-        if not isinstance(place,int): raise RuntimeError('Place ID não confirmado.')
-        return f'https://www.roblox.com/games/{place}?'+urlencode({'privateServerLinkCode':code})
+        before=await self.info()
+
+        def code_of(data):
+            for key in ('linkCode','privateServerLinkCode','joinCode'):
+                value=data.get(key)
+                if isinstance(value,str) and value.strip():
+                    return value.strip()
+            return None
+
+        old=code_of(before)
+
+        result=await self.request(
+            'PATCH',
+            'games.roblox.com',
+            f'/v1/vip-servers/{self.id}',
+            {'newJoinCode':True}
+        )
+
+        candidate=code_of(result)
+
+        for delay in (0,1,2,3,4):
+            if delay:
+                await asyncio.sleep(delay)
+
+            info=await self.info()
+            code=code_of(info)
+
+            if info.get('active') is not True:
+                continue
+
+            if not code or code==old:
+                if candidate and candidate!=old:
+                    code=candidate
+                else:
+                    continue
+
+            game=info.get('game') or before.get('game') or {}
+
+            place=(
+                game.get('rootPlaceId')
+                or game.get('placeId')
+                or info.get('placeId')
+                or info.get('rootPlaceId')
+                or before.get('placeId')
+            )
+
+            # Place ID fixo do Grau SP
+            place=os.getenv(
+                'ROBLOX_PLACE_ID',
+                '101953291486308'
+            ).strip()
+
+            if isinstance(place,str) and place.isdigit():
+                place=int(place)
+
+            if not isinstance(place,int) or isinstance(place,bool) or place<=0:
+                self.stage='identificar mapa (place ID ausente)'
+                raise RuntimeError('Place ID não confirmado.')
+
+            return f'https://www.roblox.com/games/{place}?'+urlencode({
+                'privateServerLinkCode':code
+            })
+
+        self.stage='confirmar novo código de convite'
+        raise RuntimeError('Novo código não confirmado.')
+
     async def blocked(self,uid):
         self.stage='consultar bloqueios'
-        data=await self.request('GET','accountsettings.roblox.com','/v1/users/get-blocked-users')
+
+        data=await self.request(
+            'GET',
+            'accountsettings.roblox.com',
+            '/v1/users/get-blocked-users'
+        )
+
         users=data.get('blockedUsers')
-        if not isinstance(users,list) or any(not isinstance(x,dict) or not isinstance(x.get('userId'),int) for x in users): raise RuntimeError('Lista de bloqueios não reconhecida.')
-        if data.get('nextPageCursor') or (isinstance(data.get('total'),int) and data['total']>len(users)): raise RuntimeError('Lista incompleta.')
+
+        if not isinstance(users,list) or any(
+            not isinstance(x,dict)
+            or not isinstance(x.get('userId'),int)
+            for x in users
+        ):
+            raise RuntimeError('Lista de bloqueios não reconhecida.')
+
+        if data.get('nextPageCursor') or (
+            isinstance(data.get('total'),int)
+            and data['total']>len(users)
+        ):
+            raise RuntimeError('Lista incompleta.')
+
         return any(x['userId']==int(uid) for x in users)
+
     async def change_block(self,uid,block):
         uid=int(uid)
-        if await self.blocked(uid)==block: return False
+
+        if await self.blocked(uid)==block:
+            return False
+
         self.stage='alterar bloqueio'
         action='block' if block else 'unblock'
-        await self.request('POST','accountsettings.roblox.com',f'/v1/users/{uid}/{action}',{})
-        if await self.blocked(uid)!=block: raise RuntimeError('Bloqueio não confirmado.')
+
+        await self.request(
+            'POST',
+            'accountsettings.roblox.com',
+            f'/v1/users/{uid}/{action}',
+            {}
+        )
+
+        if await self.blocked(uid)!=block:
+            raise RuntimeError('Bloqueio não confirmado.')
+
         return True
